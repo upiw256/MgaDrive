@@ -1,0 +1,34 @@
+services:
+  backend:
+    build: ./backend
+    container_name: drive_backend
+    volumes:
+      - ./backend:/app
+      - ./data/storage:/app/storage
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/drive
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongodb
+
+  frontend:
+    build: ./frontend
+    container_name: drive_frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  mongodb:
+    image: mongo:6.0
+    container_name: drive_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./data/db:/data/db
+
+networks:
+  default:
+    name: drive_network

@@ -1,0 +1,65 @@
+# Rencana Pengembangan Aplikasi Cloud Storage Pribadi (Alternatif Google Drive / ownCloud)
+
+## 1. Arsitektur Sistem
+- **Frontend**: ReactJS (Modern UI, dinamis, responsif)
+- **Backend**: Python (FastAPI direkomendasikan karena performa tinggi untuk I/O stream)
+- **Database**: MongoDB (Metadata file, info user, kuota, bandwidth limit)
+- **Deployment**: Docker & Docker Compose
+
+## 2. Fitur Utama
+- **Autentikasi & Manajemen User**
+  - Login, Logout (JWT Auth).
+  - **Registrasi Admin-Only**: Pendaftaran user baru hanya bisa dilakukan oleh Admin melalui Control Center.
+  - Pembuatan folder root otomatis di `/data/{user_id}`.
+- **Manajemen File & Folder (Akses Terisolasi)**
+  - CRUD (Create, Read, Update, Delete) file dan folder.
+  - Setiap user hanya bisa mengakses foldernya sendiri.
+- **Sistem Kuota & Bandwidth**
+  - Limit penyimpanan (GB) per user (Admin-managed).
+  - Limit kecepatan Download/Upload (KB/s) per user (Admin-managed).
+- **Media Preview & Dashboard Admin**
+  - Pratinjau foto & video tanpa download.
+  - Panel kontrol admin untuk Manajemen User, Log Sistem, dan Pengaturan Limit.
+
+---
+
+## 3. Daftar Ceklis Pengembangan (Checklist)
+
+### Fase 1: Setup Proyek & Lingkungan
+- [x] Inisialisasi ReactJS dan Backend Python (FastAPI).
+- [x] Setup database MongoDB dan migrasi folder penyimpanan ke `data/`.
+- [x] Implementasi skema user dengan field `is_admin`, `quota_gb`, dan `speed_limit`.
+
+### Fase 2: Autentikasi & Security
+- [x] Implementasi Login JWT & Proteksi Rute.
+- [x] Inisialisasi Default Admin (`admin` / `admin123456`) secara otomatis.
+- [x] **Restriksi Registrasi**: Memindahkan fitur pendaftaran ke Dashboard Admin (Admin-only).
+
+### Fase 3: Core Storage & Throttling
+- [x] Endpoint Upload/Download dengan verifikasi kuota.
+- [x] Implementasi **Dynamic Bandwidth Throttling** (Membaca limit dari database).
+- [x] Sistem isolasi folder user (`data/{user_id}`).
+
+### Fase 4: Antarmuka & UX (Frontend)
+- [x] Layout Dashboard File Explorer dengan Breadcrumbs.
+- [x] Custom Context Menu (Klik Kanan) untuk File Actions.
+- [x] **Media Preview**: Modal pratinjau untuk Gambar dan Video.
+- [x] Progress bar upload dan info sisa kuota.
+
+### Fase 5: Admin Dashboard & Logging
+- [x] Panel Manajemen User (Add, Edit Quota/Speed, Delete).
+- [x] **System Log Viewer**: Integrasi log aktivitas backend (app.log) ke UI Admin.
+- [x] Perbaikan Health Check Database (Anti-hang).
+
+### Fase 6: Deployment & Finalisasi
+- [x] Dockerization (Dockerfile & docker-compose.yml).
+- [x] Pengujian skenario isolasi data dan limitasi kecepatan.
+- [x] Pembersihan kode dan penghapusan fitur pendaftaran publik.
+
+### Fase 7: Fitur Lanjutan & UX Optimization
+- [ ] Fitur Toggle Layout: Merubah susunan file (Thumbnail/Grid vs Detail/List).
+- [ ] Fitur Search: Pencarian file berdasarkan nama secara real-time.
+- [ ] Fitur Filter: Penyaringan file berdasarkan tipe (Document, Image, Video, dll).
+
+---
+*Status Proyek: Fitur inti selesai. Memasuki tahap penambahan fitur UX lanjutan.*
