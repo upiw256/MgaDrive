@@ -1,11 +1,12 @@
-import React from 'react';
-import { X, FileText, Smartphone } from 'lucide-react';
+import { X, FileText } from 'lucide-react';
 
-const MediaPreview = ({ item, currentPath, onClose }) => {
+const MediaPreview = ({ item, currentPath, onClose, fileUrl: overrideUrl }) => {
   const token = localStorage.getItem('token');
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  
+  // Use overrideUrl if provided (for shared links), otherwise construct standard download URL
   const relativePath = item.path || (currentPath ? `${currentPath}/${item.name}` : item.name);
-  const fileUrl = `${apiUrl}/download?path=${encodeURIComponent(relativePath)}&token=${token}`;
+  const fileUrl = overrideUrl || `${apiUrl}/download?path=${encodeURIComponent(relativePath)}&token=${token}`;
 
   const isImage = (name) => /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
   const isVideo = (name) => /\.(mp4|webm|mov|ogg)$/i.test(name);

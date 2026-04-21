@@ -22,7 +22,7 @@ Based on your feedback, I am refining the plan to focus on account-wide search a
 
 ### Dashboard UX Updates
 
-#### [MODIFY] [Dashboard.jsx](file:///d:/MgaDrive/frontend/src/pages/Dashboard.jsx)
+#### [MODIFY] [Dashboard.jsx](file:///d:/MgaDrive/Frontend/src/pages/Dashboard.jsx)
 - **Search Integration**:
     - Add a search input that triggers the `/search` endpoint (with debouncing for performance).
     - When searching, the usual folder grid/list is replaced by "Search Results".

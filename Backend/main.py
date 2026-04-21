@@ -4,15 +4,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 import os
 import shutil
-from datetime import datetime
-from database import users_collection, files_collection
-from models import UserCreate, Token
+import secrets
+from datetime import datetime, timezone
+from database import users_collection, files_collection, shared_links_collection
+from models import UserCreate, Token, ShareCreate, ShareResponse
 from auth import get_password_hash, verify_password, create_access_token, get_current_user
 from utils.storage_utils import throttled_file_reader, get_user_storage_path
 import logging
 from time import time
 from typing import Optional
 import mimetypes
+from bson import ObjectId
 
 # Setup logging
 logging.basicConfig(
@@ -295,6 +297,157 @@ async def search_files(q: str = "", file_type: Optional[str] = None, current_use
             
     return {"query": q, "type": file_type, "items": results}
 
+# Sharing Endpoints
+@app.post("/shares", response_model=ShareResponse)
+async def create_share(share: ShareCreate, current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user["_id"])
+    
+    # Check if a link already exists for this path
+    existing = await shared_links_collection.find_one({"owner_id": user_id, "target_path": share.path})
+    
+    if existing:
+        link_id = existing["link_id"]
+        update_data = {
+            "allowed_users": share.allowed_users,
+            "expires_at": share.expires_at,
+            "updated_at": datetime.utcnow()
+        }
+        await shared_links_collection.update_one({"_id": existing["_id"]}, {"$set": update_data})
+        # Refresh document
+        doc = await shared_links_collection.find_one({"_id": existing["_id"]})
+    else:
+        link_id = secrets.token_urlsafe(16)
+        doc = {
+            "link_id": link_id,
+            "owner_id": user_id,
+            "target_path": share.path,
+            "allowed_users": share.allowed_users,
+            "created_at": datetime.utcnow(),
+            "expires_at": share.expires_at
+        }
+        await shared_links_collection.insert_one(doc)
+    
+    return doc
+
+@app.get("/shares/me")
+async def list_my_shares(current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user["_id"])
+    shares = await shared_links_collection.find({"owner_id": user_id}).to_list(100)
+    for s in shares:
+        s["_id"] = str(s["_id"])
+    return shares
+
+@app.delete("/shares/{link_id}")
+async def delete_share(link_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user["_id"])
+    result = await shared_links_collection.delete_one({"link_id": link_id, "owner_id": user_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Link not found or permission denied")
+    return {"message": "Share link revoked"}
+
+# Public/Shared access endpoints (No get_current_user requirement, will check inside)
+async def get_share_and_verify(link_id: str, request: Request):
+    share = await shared_links_collection.find_one({"link_id": link_id})
+    if not share:
+        logger.warning(f"Shared link not found: {link_id}")
+        raise HTTPException(status_code=404, detail="Share link not found")
+    
+    # Check expiration
+    if share.get("expires_at"):
+        if datetime.utcnow() > share["expires_at"]:
+            logger.warning(f"Shared link expired: {link_id}")
+            raise HTTPException(status_code=410, detail="Share link has expired")
+            
+    # Check permissions
+    allowed_users = share.get("allowed_users")
+    if allowed_users: # It's a private share
+        logger.info(f"Checking access for private share: {link_id}, Allowed: {allowed_users}")
+        # Try to get user from token
+        try:
+            current_user = await get_current_user(
+                token_header=request.headers.get("Authorization"),
+                token=request.query_params.get("token")
+            )
+            # Check if user is in allowed_users (check username and email)
+            user_id_vals = [current_user["username"], current_user["email"]]
+            if not any(u in allowed_users for u in user_id_vals):
+                logger.warning(f"Access denied for user {current_user['username']} on share {link_id}")
+                raise HTTPException(status_code=403, detail="You do not have permission to access this share")
+            logger.info(f"Access granted to user {current_user['username']} for share {link_id}")
+        except HTTPException as e:
+            # Re-raise HTTP exceptions (like 403)
+            raise e
+        except Exception as e:
+            logger.error(f"Authentication failed for share {link_id}: {str(e)}")
+            raise HTTPException(status_code=401, detail="Authentication required for this share")
+            
+    return share
+
+@app.get("/s/{link_id}/files")
+async def list_shared_files(link_id: str, request: Request, path: str = ""):
+    share = await get_share_and_verify(link_id, request)
+    owner_id = share["owner_id"]
+    base_shared_path = share["target_path"]
+    
+    # Combine share target and requested sub-path
+    full_sub_path = os.path.join(base_shared_path, path).replace('\\', '/').strip('/')
+    
+    try:
+        target_path = get_user_storage_path(STORAGE_PATH, owner_id, full_sub_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    if not os.path.exists(target_path):
+        raise HTTPException(status_code=404, detail="Path not found")
+        
+    items = []
+    for entry in os.scandir(target_path):
+        items.append({
+            "name": entry.name,
+            "is_dir": entry.is_dir(),
+            "size": entry.stat().st_size if entry.is_file() else 0,
+            "modified": datetime.fromtimestamp(entry.stat().st_mtime).isoformat()
+        })
+        
+    return {"name": os.path.basename(base_shared_path), "path": path, "items": items}
+
+@app.get("/s/{link_id}/download")
+async def download_shared_file(link_id: str, request: Request, path: str):
+    share = await get_share_and_verify(link_id, request)
+    owner_id = share["owner_id"]
+    base_shared_path = share["target_path"]
+    
+    # Combine share target and requested sub-path
+    full_sub_path = os.path.join(base_shared_path, path).replace('\\', '/').strip('/')
+    
+    try:
+        file_path = get_user_storage_path(STORAGE_PATH, owner_id, full_sub_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    if not os.path.exists(file_path) or os.path.isdir(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    # Get owner's speed limit
+    owner = await users_collection.find_one({"_id": share["owner_id"] if isinstance(share["owner_id"], str) else share["owner_id"]})
+    # Wait, owner_id in share is string usually, but database.py might use ObjectId
+    from bson import ObjectId
+    owner = await users_collection.find_one({"_id": ObjectId(owner_id)})
+    
+    speed_limit = owner.get("download_limit_kbps", 500) if owner else 500
+    
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        mime_type = "application/octet-stream"
+        
+    disposition = "inline" if mime_type.startswith(("image/", "video/", "audio/", "text/")) else "attachment"
+    
+    return StreamingResponse(
+        throttled_file_reader(file_path, speed_limit_kbps=speed_limit),
+        media_type=mime_type,
+        headers={"Content-Disposition": f"{disposition}; filename={os.path.basename(file_path)}"}
+    )
+
 async def check_admin(current_user: dict = Depends(get_current_user)):
     if not current_user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -312,7 +465,6 @@ async def list_users():
 
 @app.patch("/admin/users/{user_id}", dependencies=[Depends(check_admin)])
 async def update_user(user_id: str, data: dict):
-    from bson import ObjectId
     try:
         # Filter allowed fields
         allowed_fields = ["quota_gb", "download_limit_kbps", "upload_limit_kbps", "is_admin"]
@@ -328,7 +480,6 @@ async def update_user(user_id: str, data: dict):
 
 @app.delete("/admin/users/{user_id}", dependencies=[Depends(check_admin)])
 async def delete_user(user_id: str):
-    from bson import ObjectId
     try:
         # Delete user files first
         user_path = os.path.join(STORAGE_PATH, user_id)

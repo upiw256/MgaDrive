@@ -26,3 +26,16 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: Optional[str] = None
+
+class ShareCreate(BaseModel):
+    path: str
+    allowed_users: Optional[list[str]] = None # List of usernames/emails. If empty/None, it's public.
+    expires_at: Optional[datetime] = None
+
+class ShareResponse(BaseModel):
+    link_id: str
+    target_path: str
+    owner_id: str
+    allowed_users: Optional[list[str]] = None
+    created_at: datetime
+    expires_at: Optional[datetime] = None

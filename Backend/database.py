@@ -11,3 +11,4 @@ db = client.get_database()
 # Collections
 users_collection = db.get_collection("users")
 files_collection = db.get_collection("files")
+shared_links_collection = db.get_collection("shared_links")

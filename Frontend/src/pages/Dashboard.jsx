@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Folder, File as FileIcon, MoreVertical, Upload, FolderPlus, 
   ChevronRight, Download, Trash2, LogOut, HardDrive, Eye, ShieldCheck,
-  Search, LayoutGrid, List, Image, Video, FileText, X
+  Search, LayoutGrid, List, Image, Video, FileText, X, Share2
 } from 'lucide-react';
 import api from '../api';
 import MediaPreview from '../components/MediaPreview';
+import ShareModal from '../components/ShareModal';
 import { showAlert, showToast, showConfirm } from '../utils/swal';
 import PremiumSwal from '../utils/swal';
 
@@ -23,6 +24,7 @@ const Dashboard = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [activeFilter, setActiveFilter] = useState('all'); // 'all', 'image', 'video', 'document'
+  const [shareItem, setShareItem] = useState(null);
 
   const isImage = (name) => /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
   const isVideo = (name) => /\.(mp4|webm|mov|ogg)$/i.test(name);
@@ -547,6 +549,14 @@ const Dashboard = () => {
           >
             <Trash2 className="w-4 h-4" /> Delete
           </button>
+          {selectedItem.is_dir && (
+            <button 
+              onClick={() => { setShareItem(selectedItem); setContextMenu(null); }}
+              className="w-full text-left px-4 py-2 text-sm hover:bg-blue-600 flex items-center gap-2"
+            >
+              <Share2 className="w-4 h-4" /> Share
+            </button>
+          )}
         </div>
       )}
 
@@ -556,6 +566,14 @@ const Dashboard = () => {
           item={previewItem} 
           currentPath={currentPath} 
           onClose={() => setPreviewItem(null)} 
+        />
+      )}
+      {/* Share Modal */}
+      {shareItem && (
+        <ShareModal 
+          item={shareItem} 
+          currentPath={currentPath} 
+          onClose={() => setShareItem(null)} 
         />
       )}
     </div>

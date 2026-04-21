@@ -50,6 +50,10 @@ async def get_current_user(
     if not final_token:
         raise credentials_exception
 
+    # Handle manual calls with raw "Bearer <token>" header
+    if final_token.startswith("Bearer "):
+        final_token = final_token[7:]
+
     try:
         payload = jwt.decode(final_token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
