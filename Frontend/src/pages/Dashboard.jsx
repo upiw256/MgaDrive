@@ -29,12 +29,8 @@ const Dashboard = () => {
   const isImage = (name) => /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
   const isVideo = (name) => /\.(mp4|webm|mov|ogg)$/i.test(name);
   
-  const getFileUrl = (item) => {
-    // If item has a path (search result), use it. Otherwise, construct relative to currentPath.
-    const relativePath = item.path || (currentPath ? `${currentPath}/${item.name}` : item.name);
-    const token = localStorage.getItem('token');
-    return `http://localhost:8000/download?path=${encodeURIComponent(relativePath)}&token=${token}`;
-  };
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:9000';
+    return `${apiUrl}/download?path=${encodeURIComponent(relativePath)}&token=${token}`;
 
   const fetchFiles = useCallback(async (path = '') => {
     setLoading(true);
@@ -166,8 +162,8 @@ const Dashboard = () => {
 
   const handleDownload = async () => {
     if (!selectedItem || selectedItem.is_dir) return;
-    const relativePath = selectedItem.path || (currentPath ? `${currentPath}/${selectedItem.name}` : selectedItem.name);
-    window.open(`http://localhost:8000/download?path=${encodeURIComponent(relativePath)}&token=${localStorage.getItem('token')}`, '_blank');
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:9000';
+    window.open(`${apiUrl}/download?path=${encodeURIComponent(relativePath)}&token=${localStorage.getItem('token')}`, '_blank');
     setContextMenu(null);
   };
 

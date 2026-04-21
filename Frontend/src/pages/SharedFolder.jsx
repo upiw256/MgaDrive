@@ -49,7 +49,7 @@ const SharedFolder = () => {
   const getDownloadUrl = (item) => {
     const relativePath = currentPath ? `${currentPath}/${item.name}` : item.name;
     const token = localStorage.getItem('token');
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:9000';
     let url = `${apiUrl}/s/${linkId}/download?path=${encodeURIComponent(relativePath)}`;
     if (token) url += `&token=${token}`;
     return url;

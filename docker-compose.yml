@@ -8,7 +8,7 @@ services:
     environment:
       - MONGO_URI=mongodb://mongodb:27017/drive
     ports:
-      - "8000:8000"
+      - "9000:8000"
     depends_on:
       - mongodb
 
@@ -16,16 +16,18 @@ services:
     build: ./Frontend
     container_name: drive_frontend
     ports:
-      - "5173:5173"
+      - "9001:5173"
     volumes:
       - ./Frontend:/app
       - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:9000
 
   mongodb:
     image: mongo:6.0
     container_name: drive_mongodb
     ports:
-      - "27017:27017"
+      - "9017:27017"
     volumes:
       - ./data/db:/data/db
 

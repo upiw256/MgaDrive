@@ -2,7 +2,7 @@ import { X, FileText } from 'lucide-react';
 
 const MediaPreview = ({ item, currentPath, onClose, fileUrl: overrideUrl }) => {
   const token = localStorage.getItem('token');
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:9000';
   
   // Use overrideUrl if provided (for shared links), otherwise construct standard download URL
   const relativePath = item.path || (currentPath ? `${currentPath}/${item.name}` : item.name);
