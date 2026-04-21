@@ -1,9 +1,9 @@
 services:
   backend:
-    build: ./backend
+    build: ./Backend
     container_name: drive_backend
     volumes:
-      - ./backend:/app
+      - ./Backend:/app
       - ./data/storage:/app/storage
     environment:
       - MONGO_URI=mongodb://mongodb:27017/drive
@@ -13,12 +13,12 @@ services:
       - mongodb
 
   frontend:
-    build: ./frontend
+    build: ./Frontend
     container_name: drive_frontend
     ports:
       - "5173:5173"
     volumes:
-      - ./frontend:/app
+      - ./Frontend:/app
       - /app/node_modules
 
   mongodb:
