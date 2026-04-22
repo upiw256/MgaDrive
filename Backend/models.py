@@ -43,3 +43,7 @@ class ShareResponse(BaseModel):
     expires_at: Optional[datetime] = None
     title: Optional[str] = None
     description: Optional[str] = None
+
+class FolderCreate(BaseModel):
+    path: str = ""
+    name: str

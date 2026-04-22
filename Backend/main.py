@@ -7,7 +7,7 @@ import shutil
 import secrets
 from datetime import datetime, timezone
 from database import users_collection, files_collection, shared_links_collection
-from models import UserCreate, Token, ShareCreate, ShareResponse
+from models import UserCreate, Token, ShareCreate, ShareResponse, FolderCreate
 from auth import get_password_hash, verify_password, create_access_token, get_current_user
 from utils.storage_utils import throttled_file_reader, get_user_storage_path
 import logging
@@ -100,13 +100,18 @@ async def startup_event():
             "is_admin": True,
             "quota_gb": 100.0,
             "used_bytes": 0,
-            "download_limit_kbps": 10000, # 10MB/s for admin
+            "download_limit_kbps": 10000, 
             "upload_limit_kbps": 10000,
             "created_at": datetime.utcnow()
         }
         result = await users_collection.insert_one(admin_data)
-        os.makedirs(os.path.join(STORAGE_PATH, str(result.inserted_id)), exist_ok=True)
+        admin_id = str(result.inserted_id)
         print("Default admin created: admin / admin123456")
+    else:
+        admin_id = str(admin_user["_id"])
+    
+    # Pastikan folder admin ada di STORAGE_PATH baru
+    os.makedirs(os.path.join(STORAGE_PATH, admin_id), exist_ok=True)
     
     # Start background task
     asyncio.create_task(broadcast_stats())
@@ -211,26 +216,36 @@ async def upload_files(
     uploaded_filenames = []
     for file in files:
         target_file_path = os.path.join(target_dir, file.filename)
-        with open(target_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        uploaded_filenames.append(file.filename)
+        # Pastikan parent directory ada
+        os.makedirs(os.path.dirname(target_file_path), exist_ok=True)
+        try:
+            with open(target_file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            uploaded_filenames.append(file.filename)
+        except Exception as e:
+            logger.error(f"Upload failed for {file.filename}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
     
     return {"message": f"{len(uploaded_filenames)} files uploaded successfully", "filenames": uploaded_filenames}
 
-@app.post("/folder")
-async def create_folder(path: str = Form(""), name: str = Form(...), current_user: dict = Depends(get_current_user)):
+@app.post("/folders")
+async def create_folder(folder: FolderCreate, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
     try:
-        parent_path = get_user_storage_path(STORAGE_PATH, user_id, path)
+        parent_path = get_user_storage_path(STORAGE_PATH, user_id, folder.path)
     except ValueError:
         raise HTTPException(status_code=403, detail="Forbidden")
     
-    new_folder_path = os.path.join(parent_path, name)
+    new_folder_path = os.path.join(parent_path, folder.name)
     if os.path.exists(new_folder_path):
         raise HTTPException(status_code=400, detail="Folder already exists")
     
-    os.makedirs(new_folder_path)
-    return {"message": "Folder created"}
+    try:
+        os.makedirs(new_folder_path, exist_ok=True)
+        return {"message": "Folder created"}
+    except Exception as e:
+        logger.error(f"Failed to create folder {new_folder_path}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Could not create folder: {str(e)}")
 
 @app.get("/download")
 async def download_file(path: str, current_user: dict = Depends(get_current_user)):
