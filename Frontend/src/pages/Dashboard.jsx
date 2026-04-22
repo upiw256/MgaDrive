@@ -5,6 +5,7 @@ import {
   Search, LayoutGrid, List, Image, Video, FileText, X, Share2
 } from 'lucide-react';
 import api from '../api';
+import { getApiUrl } from '../utils/config';
 import MediaPreview from '../components/MediaPreview';
 import ShareModal from '../components/ShareModal';
 import { showAlert, showToast, showConfirm } from '../utils/swal';
@@ -32,7 +33,7 @@ const Dashboard = () => {
   const getFileUrl = (item) => {
     const relativePath = item.path || (currentPath ? `${currentPath}/${item.name}` : item.name);
     const token = localStorage.getItem('token');
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:9000';
+    const apiUrl = getApiUrl();
     return `${apiUrl}/download?path=${encodeURIComponent(relativePath)}&token=${token}`;
   };
 
@@ -166,7 +167,7 @@ const Dashboard = () => {
 
   const handleDownload = async () => {
     if (!selectedItem || selectedItem.is_dir) return;
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:9000';
+    const apiUrl = getApiUrl();
     window.open(`${apiUrl}/download?path=${encodeURIComponent(relativePath)}&token=${localStorage.getItem('token')}`, '_blank');
     setContextMenu(null);
   };

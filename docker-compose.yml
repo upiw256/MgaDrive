@@ -2,6 +2,7 @@ services:
   backend:
     build: ./Backend
     container_name: drive_backend
+    restart: always
     volumes:
       - ./Backend:/app
       - ./data/storage:/app/storage
@@ -11,10 +12,13 @@ services:
       - "9000:8000"
     depends_on:
       - mongodb
+    networks:
+      - drive_network
 
   frontend:
     build: ./Frontend
     container_name: drive_frontend
+    restart: always
     ports:
       - "9001:5173"
     volumes:
@@ -22,15 +26,20 @@ services:
       - /app/node_modules
     environment:
       - VITE_API_URL=http://localhost:9000
+    networks:
+      - drive_network
 
   mongodb:
     image: mongo:6.0
     container_name: drive_mongodb
+    restart: always
     ports:
       - "9017:27017"
     volumes:
       - ./data/db:/data/db
+    networks:
+      - drive_network
 
 networks:
-  default:
-    name: drive_network
+  drive_network:
+    driver: bridge

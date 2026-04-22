@@ -5,6 +5,7 @@ import {
   HardDrive, LayoutGrid, List, Image, Video, FileText, Info, Lock
 } from 'lucide-react';
 import api from '../api';
+import { getApiUrl } from '../utils/config';
 import MediaPreview from '../components/MediaPreview';
 
 const SharedFolder = () => {
@@ -49,7 +50,7 @@ const SharedFolder = () => {
   const getDownloadUrl = (item) => {
     const relativePath = currentPath ? `${currentPath}/${item.name}` : item.name;
     const token = localStorage.getItem('token');
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:9000';
+    const apiUrl = getApiUrl();
     let url = `${apiUrl}/s/${linkId}/download?path=${encodeURIComponent(relativePath)}`;
     if (token) url += `&token=${token}`;
     return url;
