@@ -181,7 +181,7 @@ const ShareModal = ({ item, currentPath, onClose }) => {
           {/* Expiration Section */}
           <div className="space-y-3">
             <label className="text-sm font-semibold text-slate-400 block uppercase tracking-wider">Expires after</label>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
               {[
                 { id: 'permanent', label: 'Never' },
                 { id: '1d', label: '1 Day' },
@@ -192,7 +192,7 @@ const ShareModal = ({ item, currentPath, onClose }) => {
                 <button
                   key={opt.id}
                   onClick={() => setExpirationOption(opt.id)}
-                  className={`text-[11px] py-2 rounded-lg border font-bold transition-all ${expirationOption === opt.id ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:bg-slate-800'}`}
+                  className={`text-[11px] py-2 rounded-lg border font-bold transition-all ${expirationOption === opt.id ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:bg-slate-800'} ${opt.id === 'custom' ? 'col-span-2 sm:col-span-1' : ''}`}
                 >
                   {opt.label}
                 </button>

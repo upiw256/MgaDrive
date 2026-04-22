@@ -57,4 +57,22 @@ export const showConfirm = (title, text, confirmButtonText = 'Yes, do it!') => {
   });
 };
 
+export const showProgressAlert = (title, text) => {
+  return PremiumSwal.fire({
+    title,
+    html: `
+      <div class="space-y-4 py-4">
+        <p class="text-sm text-slate-400">${text}</p>
+        <div class="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
+          <div id="progress-bar" class="bg-blue-600 h-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <p id="progress-text" class="text-xs font-bold text-blue-400">0%</p>
+      </div>
+    `,
+    showConfirmButton: false,
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+  });
+};
+
 export default PremiumSwal;
