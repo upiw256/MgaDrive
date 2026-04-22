@@ -2,24 +2,17 @@ import os
 import asyncio
 from typing import AsyncGenerator
 
-async def throttled_file_reader(path: str, chunk_size: int = 1024 * 64, speed_limit_kbps: int = 500) -> AsyncGenerator[bytes, None]:
+async def throttled_file_reader(path: str, chunk_size: int = 1024 * 64, speed_limit_kbps: int = 0) -> AsyncGenerator[bytes, None]:
     """
-    Reads a file and yields chunks with a delay to limit the speed.
-    speed_limit_kbps: Speed limit in Kilobytes per second.
+    Reads a file and yields chunks. The speed limit parameter is kept for compatibility
+    but the throttling logic is removed to allow maximum speed.
     """
-    # Calculate bytes per second
-    bytes_per_second = speed_limit_kbps * 1024
-    # Calculate delay needed per chunk
-    delay = chunk_size / bytes_per_second
-    
     with open(path, "rb") as f:
         while True:
             chunk = f.read(chunk_size)
             if not chunk:
                 break
             yield chunk
-            # Sleep to throttle the speed
-            await asyncio.sleep(delay)
 
 def get_user_storage_path(base_path: str, user_id: str, sub_path: str = ""):
     """

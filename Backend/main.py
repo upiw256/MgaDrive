@@ -12,9 +12,13 @@ from auth import get_password_hash, verify_password, create_access_token, get_cu
 from utils.storage_utils import throttled_file_reader, get_user_storage_path
 import logging
 from time import time
-from typing import Optional
+import io
+import zipfile
+from typing import Optional, List
 import mimetypes
 from bson import ObjectId
+import socketio
+import asyncio
 
 # Setup logging
 logging.basicConfig(
@@ -29,6 +33,35 @@ logger = logging.getLogger("mgadrive")
 
 app = FastAPI(title="Custom Drive API")
 
+# Socket.io Setup
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+
+@sio.event
+async def connect(sid, environ):
+    logger.info(f"Socket connected: {sid}")
+
+@sio.event
+async def disconnect(sid):
+    logger.info(f"Socket disconnected: {sid}")
+
+@sio.event
+async def client_ping(sid, data):
+    # ECHO for latency check
+    await sio.emit('server_pong', data, room=sid)
+
+# Background task for server stats
+async def broadcast_stats():
+    while True:
+        try:
+            # Simple stats - could be expanded
+            await sio.emit('server_stats', {
+                'usage': 50, # Dummy for now
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        except Exception:
+            pass
+        await asyncio.sleep(10)
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time()
@@ -38,13 +71,17 @@ async def log_requests(request: Request, call_next):
     return response
 
 # Base storage path
-STORAGE_PATH = os.path.abspath("data")
+STORAGE_PATH = os.path.abspath("storage")
 if not os.path.exists(STORAGE_PATH):
     os.makedirs(STORAGE_PATH)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://storage.sman1margaasih.sch.id",
+        "http://localhost:9001", # Support for local dev
+        "http://127.0.0.1:9001"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -70,6 +107,9 @@ async def startup_event():
         result = await users_collection.insert_one(admin_data)
         os.makedirs(os.path.join(STORAGE_PATH, str(result.inserted_id)), exist_ok=True)
         print("Default admin created: admin / admin123456")
+    
+    # Start background task
+    asyncio.create_task(broadcast_stats())
 
 @app.get("/health")
 async def health_check():
@@ -203,9 +243,6 @@ async def download_file(path: str, current_user: dict = Depends(get_current_user
     if not os.path.exists(file_path) or os.path.isdir(file_path):
         raise HTTPException(status_code=404, detail="File not found")
     
-    # Speed limit dari database user
-    speed_limit = current_user.get("download_limit_kbps", 500)
-    
     # Detect MIME type
     mime_type, _ = mimetypes.guess_type(file_path)
     
@@ -223,9 +260,49 @@ async def download_file(path: str, current_user: dict = Depends(get_current_user
     disposition = "inline" if mime_type.startswith(("image/", "video/", "audio/", "text/")) else "attachment"
     
     return StreamingResponse(
-        throttled_file_reader(file_path, speed_limit_kbps=speed_limit),
+        throttled_file_reader(file_path),
         media_type=mime_type,
         headers={"Content-Disposition": f"{disposition}; filename={os.path.basename(file_path)}"}
+    )
+
+@app.post("/download-batch")
+async def download_batch(
+    paths: List[str] = Form(...),
+    current_user: dict = Depends(get_current_user)
+):
+    user_id = str(current_user["_id"])
+    
+    if not paths:
+        raise HTTPException(status_code=400, detail="No files selected")
+        
+    # Create ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for path in paths:
+            try:
+                full_path = get_user_storage_path(STORAGE_PATH, user_id, path)
+                if os.path.exists(full_path):
+                    if os.path.isfile(full_path):
+                        # Add file to zip
+                        zip_file.write(full_path, os.path.basename(full_path))
+                    elif os.path.isdir(full_path):
+                        # Add directory recursively
+                        for root, _, files in os.walk(full_path):
+                            for file in files:
+                                file_abs_path = os.path.join(root, file)
+                                file_rel_path = os.path.relpath(file_abs_path, os.path.dirname(full_path))
+                                zip_file.write(file_abs_path, file_rel_path)
+            except ValueError:
+                continue # Skip forbidden paths
+    
+    zip_buffer.seek(0)
+    
+    filename = f"mgadrive_download_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 @app.delete("/files")
@@ -475,11 +552,6 @@ async def download_shared_file(link_id: str, request: Request, path: str):
     if not os.path.exists(file_path) or os.path.isdir(file_path):
         raise HTTPException(status_code=404, detail="File not found")
         
-    # Get owner's speed limit, but cap it at 1024 Kbps (1 Mbps) for shared links
-    owner = await users_collection.find_one({"_id": ObjectId(owner_id)})
-    owner_speed_limit = owner.get("download_limit_kbps", 500) if owner else 500
-    speed_limit = min(owner_speed_limit, 1024)
-    
     mime_type, _ = mimetypes.guess_type(file_path)
     if not mime_type:
         mime_type = "application/octet-stream"
@@ -487,9 +559,52 @@ async def download_shared_file(link_id: str, request: Request, path: str):
     disposition = "inline" if mime_type.startswith(("image/", "video/", "audio/", "text/")) else "attachment"
     
     return StreamingResponse(
-        throttled_file_reader(file_path, speed_limit_kbps=speed_limit),
+        throttled_file_reader(file_path),
         media_type=mime_type,
         headers={"Content-Disposition": f"{disposition}; filename={os.path.basename(file_path)}"}
+    )
+
+@app.post("/s/{link_id}/download-batch")
+async def download_shared_batch(
+    link_id: str,
+    request: Request,
+    paths: List[str] = Form(...)
+):
+    share = await get_share_and_verify(link_id, request)
+    owner_id = share["owner_id"]
+    base_shared_path = share["target_path"]
+    
+    if not paths:
+        raise HTTPException(status_code=400, detail="No files selected")
+        
+    # Create ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for path in paths:
+            try:
+                # Combine share target and requested sub-path
+                full_sub_path = os.path.join(base_shared_path, path).replace('\\', '/').strip('/')
+                full_path = get_user_storage_path(STORAGE_PATH, owner_id, full_sub_path)
+                
+                if os.path.exists(full_path):
+                    if os.path.isfile(full_path):
+                        zip_file.write(full_path, os.path.basename(full_path))
+                    elif os.path.isdir(full_path):
+                        for root, _, files in os.walk(full_path):
+                            for file in files:
+                                file_abs_path = os.path.join(root, file)
+                                file_rel_path = os.path.relpath(file_abs_path, os.path.dirname(full_path))
+                                zip_file.write(file_abs_path, file_rel_path)
+            except ValueError:
+                continue
+                
+    zip_buffer.seek(0)
+    filename = f"mgadrive_shared_{link_id[:8]}_{datetime.now().strftime('%Y%m%d')}.zip"
+    
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 async def check_admin(current_user: dict = Depends(get_current_user)):
@@ -550,6 +665,9 @@ async def get_logs():
 @app.get("/")
 async def root():
     return {"message": "Cloud Storage API is running"}
+
+# Wrap FastAPI app with Socket.io ASGIApp
+app = socketio.ASGIApp(sio, other_asgi_app=app)
 
 if __name__ == "__main__":
     import uvicorn

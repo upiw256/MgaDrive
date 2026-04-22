@@ -1,0 +1,24 @@
+# Storage and Data
+data/
+Backend/storage/
+Backend/data/
+
+# Python
+**/__pycache__/
+Backend/venv/
+Backend/app.log
+*.pyc
+
+# Environment
+.env
+Backend/.env
+
+# Node
+Frontend/node_modules/
+Frontend/dist/
+Frontend/dist-ssr/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store

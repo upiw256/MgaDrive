@@ -6,28 +6,30 @@ import {
 } from 'lucide-react';
 import api from '../api';
 import { getApiUrl } from '../utils/config';
+import { trackedDownload } from '../utils/downloader';
 import MediaPreview from '../components/MediaPreview';
 import ShareModal from '../components/ShareModal';
-import { showAlert, showToast, showConfirm, showProgressAlert } from '../utils/swal';
-import PremiumSwal from '../utils/swal';
+import Footer from '../components/Footer';
+import PremiumSwal, { showAlert, showToast, showConfirm, showProgressAlert } from '../utils/swal';
 
 const Dashboard = () => {
   const [items, setItems] = useState([]);
   const [currentPath, setCurrentPath] = useState('');
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState(null);
-  const [dbStatus, setDbStatus] = useState('checking'); // 'connected', 'disconnected', 'checking'
+  const [dbStatus, setDbStatus] = useState('checking');
   const [contextMenu, setContextMenu] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [previewItem, setPreviewItem] = useState(null);
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+  const [viewMode, setViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
-  const [activeFilter, setActiveFilter] = useState('all'); // 'all', 'image', 'video', 'document'
+  const [activeFilter, setActiveFilter] = useState('all');
   const [shareItem, setShareItem] = useState(null);
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [selectedItems, setSelectedItems] = useState([]);
 
   const isImage = (name) => /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
   const isVideo = (name) => /\.(mp4|webm|mov|ogg)$/i.test(name);
@@ -43,113 +45,72 @@ const Dashboard = () => {
     setLoading(true);
     try {
       const response = await api.get(`/files?path=${path}`);
-      let folderItems = response.data.items;
-      
-      // Apply local filtering if not searching
-      if (!isSearching && activeFilter !== 'all') {
-        folderItems = folderItems.filter(item => {
-          if (activeFilter === 'image') return isImage(item.name);
-          if (activeFilter === 'video') return isVideo(item.name);
-          if (activeFilter === 'document') return /\.(pdf|doc|docx|txt|xls|xlsx|ppt|pptx)$/i.test(item.name);
-          return true;
-        });
-      }
-      
-      setItems(folderItems);
+      setItems(response.data.items || []);
       setCurrentPath(path);
-    } catch (err) {
-      console.error('Failed to fetch files', err);
-    } finally {
       setLoading(false);
-    }
-  }, [activeFilter, isSearching]);
-
-  const handleSearch = useCallback(async (query, filterType) => {
-    if (!query && filterType === 'all') {
-      setIsSearching(false);
-      return;
-    }
-
-    setIsSearching(true);
-    setLoading(true);
-    try {
-      const response = await api.get(`/search?q=${query}&file_type=${filterType === 'all' ? '' : filterType}`);
-      setSearchResults(response.data.items);
     } catch (err) {
-      console.error('Search failed', err);
-    } finally {
+      console.error('Error fetching files:', err);
       setLoading(false);
+      if (err.response?.status === 401) {
+        window.location.href = '/login';
+      }
     }
   }, []);
 
-  // Debounced search effect - Reverted to Ph7 behavior (filters trigger global search)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchQuery || activeFilter !== 'all') {
-        handleSearch(searchQuery, activeFilter);
-      } else {
-        setIsSearching(false);
-        fetchFiles(currentPath);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, activeFilter, handleSearch, currentPath, fetchFiles]);
-
-  const checkHealth = async () => {
+  const checkDbStatus = useCallback(async () => {
     try {
-      const response = await api.get('/health', { timeout: 5000 }); // Tambahkan timeout 5s
-      setDbStatus(response.data.database === 'connected' ? 'connected' : 'disconnected');
+      await api.get('/health');
+      setDbStatus('connected');
     } catch (err) {
-      console.error('Health Check Failed:', err);
       setDbStatus('disconnected');
     }
-  };
+  }, []);
 
   useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (isUploading) {
-        e.preventDefault();
-        e.returnValue = 'Upload in progress. Are you sure you want to leave?';
-        return e.returnValue;
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isUploading]);
-
-  const fetchUser = async () => {
-    try {
-      const response = await api.get('/me');
-      setUser(response.data);
-    } catch (err) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-  };
-
-  useEffect(() => {
-    fetchUser();
     fetchFiles();
-    checkHealth();
-    const interval = setInterval(checkHealth, 30000); // Check every 30s
+    checkDbStatus();
+    
+    const fetchUser = async () => {
+      try {
+        const response = await api.get('/me');
+        setUser(response.data);
+      } catch (err) {}
+    };
+    fetchUser();
+
+    const interval = setInterval(checkDbStatus, 30000);
     return () => clearInterval(interval);
-  }, [fetchFiles]);
+  }, [fetchFiles, checkDbStatus]);
 
-  const handleFolderClick = (name) => {
-    const nextPath = currentPath ? `${currentPath}/${name}` : name;
-    fetchFiles(nextPath);
-  };
-
-  const handleBack = () => {
-    const parts = currentPath.split('/');
-    parts.pop();
-    fetchFiles(parts.join('/'));
-  };
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      setIsSearching(true);
+      const delayDebounceFn = setTimeout(async () => {
+        try {
+          const response = await api.get(`/search?query=${searchQuery}`);
+          setSearchResults(response.data.items || []);
+        } catch (err) {
+          console.error('Search error:', err);
+        }
+      }, 300);
+      return () => clearTimeout(delayDebounceFn);
+    } else {
+      setIsSearching(false);
+      setSearchResults([]);
+    }
+  }, [searchQuery]);
 
   const onContextMenu = (e, item) => {
     e.preventDefault();
     setSelectedItem(item);
-    setContextMenu({ x: e.pageX, y: e.pageY });
+    
+    const menuWidth = 192;
+    let x = e.pageX;
+    if (x + menuWidth > window.innerWidth) {
+      x = window.innerWidth - menuWidth - 10;
+    }
+    
+    setContextMenu({ x, y: e.pageY });
   };
 
   const handleLogout = () => {
@@ -159,15 +120,10 @@ const Dashboard = () => {
 
   const handleDelete = async () => {
     if (!selectedItem) return;
+    const path = selectedItem.path || (currentPath ? `${currentPath}/${selectedItem.name}` : selectedItem.name);
     
-    const result = await showConfirm(
-      'Are you sure?',
-      `Do you want to delete ${selectedItem.name}? This action cannot be undone.`,
-      'Yes, delete it!'
-    );
-
+    const result = await showConfirm('Are you sure?', `Delete ${selectedItem.name}? This action cannot be undone.`);
     if (result.isConfirmed) {
-      const path = currentPath ? `${currentPath}/${selectedItem.name}` : selectedItem.name;
       try {
         await api.delete(`/files?path=${path}`);
         fetchFiles(currentPath);
@@ -179,11 +135,67 @@ const Dashboard = () => {
     }
   };
 
+  const handleBack = () => {
+    const parts = currentPath.split('/');
+    parts.pop();
+    fetchFiles(parts.join('/'));
+  };
+
   const handleDownload = async () => {
     if (!selectedItem || selectedItem.is_dir) return;
+    const relativePath = selectedItem.path || (currentPath ? `${currentPath}/${selectedItem.name}` : selectedItem.name);
     const apiUrl = getApiUrl();
-    window.open(`${apiUrl}/download?path=${encodeURIComponent(relativePath)}&token=${localStorage.getItem('token')}`, '_blank');
-    setContextMenu(null);
+    const downloadUrl = `${apiUrl}/download?path=${encodeURIComponent(relativePath)}&token=${localStorage.getItem('token')}`;
+    
+    try {
+      setContextMenu(null);
+      await trackedDownload(downloadUrl, selectedItem.name);
+    } catch (err) {
+      console.error('Download failed', err);
+    }
+  };
+
+  const toggleSelect = (item) => {
+    const path = item.path || (currentPath ? `${currentPath}/${item.name}` : item.name);
+    setSelectedItems(prev => 
+      prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]
+    );
+  };
+
+  const handleSelectAll = () => {
+    const allItems = isSearching ? searchResults : items;
+    if (selectedItems.length === allItems.length) {
+      setSelectedItems([]);
+    } else {
+      const allPaths = allItems.map(item => item.path || (currentPath ? `${currentPath}/${item.name}` : item.name));
+      setSelectedItems(allPaths);
+    }
+  };
+
+  const handleBatchDownload = async () => {
+    if (selectedItems.length === 0) return;
+    const apiUrl = getApiUrl();
+    
+    try {
+      const formData = new FormData();
+      selectedItems.forEach(path => formData.append('paths', path));
+      
+      const filename = `mgadrive_batch_${new Date().getTime()}.zip`;
+      
+      await trackedDownload(`${apiUrl}/download-batch`, filename, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: formData
+      });
+      
+      setSelectedItems([]);
+      showToast('success', 'Batch download complete');
+    } catch (err) {
+      console.error('Batch download failed', err);
+      showAlert('error', 'Error', 'Failed to prepare batch download');
+    }
   };
 
   const handleCreateFolder = async () => {
@@ -200,11 +212,8 @@ const Dashboard = () => {
 
     if (!name) return;
 
-    const formData = new FormData();
-    formData.append('path', currentPath);
-    formData.append('name', name);
     try {
-      await api.post('/folder', formData);
+      await api.post('/folders', { name, path: currentPath });
       fetchFiles(currentPath);
       showToast('success', 'Folder created');
     } catch (err) {
@@ -246,7 +255,7 @@ const Dashboard = () => {
     } catch (err) {
       PremiumSwal.close();
       setIsUploading(false);
-      const errorMessage = err.response?.data?.detail || 'There was an error uploading your files. Please check your internet connection or file size.';
+      const errorMessage = err.response?.data?.detail || 'There was an error uploading your files.';
       showAlert('error', 'Upload Failed', errorMessage);
     }
   };
@@ -259,7 +268,7 @@ const Dashboard = () => {
           <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-500/20">
             <HardDrive className="w-6 h-6" />
           </div>
-          <h1 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
+          <h1 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent hidden sm:block">
             MyCloud
           </h1>
           <button 
@@ -283,223 +292,160 @@ const Dashboard = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl py-2 pl-10 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
               />
-              {searchQuery && (
-                <button 
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
             </div>
           </div>
         )}
           
-          {/* Global Search */}
           <div className="flex-1 max-w-md mx-6 hidden md:block">
             <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
               <input 
                 type="text" 
-                placeholder="Search files everywhere..."
+                placeholder="Search in your cloud..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-2 pl-10 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/50 transition-all"
+                className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
-              {searchQuery && (
-                <button 
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
             </div>
           </div>
 
           <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 px-3 py-1 bg-slate-800 rounded-full border border-slate-700">
-            <div className={`w-2 h-2 rounded-full ${dbStatus === 'connected' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : dbStatus === 'checking' ? 'bg-yellow-500' : 'bg-red-500 animate-pulse'}`}></div>
+            <div className={`w-2 h-2 rounded-full ${dbStatus === 'connected' ? 'bg-green-500' : 'bg-red-500'}`}></div>
             <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
-              DB: {dbStatus}
+              {dbStatus}
             </span>
           </div>
-          <div className="hidden md:block text-right">
-            <p className="text-sm font-medium">{user?.username}</p>
-            <p className="text-xs text-slate-500">{user?.quota_gb} GB Total</p>
+          <div className="hidden md:block">
+            <p className="text-[10px] font-bold text-slate-300">{user?.username}</p>
           </div>
           {user?.is_admin && (
             <button 
               onClick={() => window.location.href = '/admin'}
-              className="p-2 bg-purple-600/20 hover:bg-purple-600/40 rounded-full text-purple-400 border border-purple-500/30 transition-all flex items-center gap-2 px-3 pl-2"
+              className="p-2 bg-purple-600/20 rounded-full text-purple-400 border border-purple-500/30 px-3"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span className="text-[10px] font-bold uppercase">Admin</span>
             </button>
           )}
-          <button 
-            onClick={handleLogout}
-            className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-red-400 transition-colors"
-          >
+          <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-white">
             <LogOut className="w-5 h-5" />
           </button>
         </div>
       </header>
 
+      {/* Selection Action Bar */}
+      {selectedItems.length > 0 && (
+        <div className="bg-blue-600 px-6 py-3 flex items-center justify-between sticky top-16 z-20 shadow-lg">
+          <span className="font-bold text-sm">{selectedItems.length} selected</span>
+          <div className="flex gap-2">
+            <button onClick={() => setSelectedItems([])} className="text-xs bg-white/20 px-3 py-1 rounded-full">Clear</button>
+            <button onClick={handleBatchDownload} className="flex items-center gap-2 bg-white text-blue-600 px-4 py-1 rounded-lg font-bold text-sm">
+              <Download className="w-4 h-4" /> ZIP
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="flex-1 p-6 md:p-10 max-w-7xl mx-auto w-full">
-        {/* Actions Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-            <button onClick={() => fetchFiles('')} className="hover:text-white transition-colors">Root</button>
-            {currentPath.split('/').filter(Boolean).map((part, i) => (
-              <React.Fragment key={i}>
-                <ChevronRight className="w-4 h-4" />
-                <span className="last:text-blue-400">{part}</span>
-              </React.Fragment>
-            ))}
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              <Folder className="w-6 h-6 text-blue-500" />
+              {currentPath || 'Root Storage'}
+            </h2>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 md:gap-4">
-            {/* Filter Pills - Scrollable on mobile */}
-            <div className="flex bg-slate-800/50 p-1 rounded-xl border border-slate-700 overflow-x-auto no-scrollbar max-w-[calc(100vw-3rem)] md:max-w-none">
-              {[
-                { id: 'all', label: 'All', icon: LayoutGrid },
-                { id: 'image', label: 'Images', icon: Image },
-                { id: 'video', label: 'Videos', icon: Video },
-                { id: 'document', label: 'Docs', icon: FileText },
-              ].map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setActiveFilter(f.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                    activeFilter === f.id 
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                  }`}
-                >
-                  <f.icon className="w-3.5 h-3.5" />
-                  {f.label}
-                </button>
-              ))}
-            </div>
-
-            {/* View Toggle */}
-            <div className="flex bg-slate-800/50 p-1 rounded-xl border border-slate-700">
+          <div className="flex items-center gap-2">
               <button 
-                onClick={() => setViewMode('grid')}
-                className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-slate-600 text-white' : 'text-slate-500 hover:text-white'}`}
-                title="Grid View"
+                onClick={handleSelectAll}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-700 bg-slate-800"
               >
-                <LayoutGrid className="w-4 h-4" />
+                {selectedItems.length > 0 ? 'Unselect All' : 'Select All'}
               </button>
-              <button 
-                onClick={() => setViewMode('list')}
-                className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-slate-600 text-white' : 'text-slate-500 hover:text-white'}`}
-                title="List View"
-              >
-                <List className="w-4 h-4" />
+              <button onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 bg-slate-800 rounded-lg">
+                {viewMode === 'grid' ? <List className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
               </button>
-            </div>
-
-            <div className="hidden md:block h-8 w-px bg-slate-700 mx-1"></div>
-
-            <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto mt-2 md:mt-0">
-              <label className="flex-1 md:flex-none cursor-pointer flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-medium transition-all transform active:scale-95 shadow-lg shadow-blue-500/20">
-                <Upload className="w-4 h-4" />
-                <span className="text-sm">Upload</span>
-                <input type="file" className="hidden" multiple onChange={handleUpload} />
-              </label>
-              <button 
-                onClick={handleCreateFolder}
-                className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg font-medium transition-all"
-              >
-                <FolderPlus className="w-4 h-4" />
-                <span className="text-sm">Folder</span>
-              </button>
-            </div>
           </div>
         </div>
 
-        {/* Search Header for Mobile/Title */}
-        {isSearching && (
-          <div className="mb-6 animate-in slide-in-from-top-4 duration-300">
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              <Search className="w-5 h-5 text-blue-400" />
-              Search Results for "{searchQuery || activeFilter}"
-              <button 
-                onClick={() => { setSearchQuery(''); setActiveFilter('all'); }}
-                className="text-xs font-normal text-slate-500 hover:text-white underline underline-offset-4 ml-2"
-              >
-                Clear Results
-              </button>
-            </h2>
-          </div>
-        )}
+        {/* Action Bar */}
+        <div className="flex items-center gap-4 mb-8">
+          <label className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl font-bold cursor-pointer transition-all">
+            <Upload className="w-5 h-5" />
+            Upload
+            <input type="file" multiple className="hidden" onChange={handleUpload} disabled={isUploading} />
+          </label>
+          <button 
+            onClick={handleCreateFolder}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-2xl font-bold border border-slate-700"
+          >
+            <FolderPlus className="w-5 h-5 text-blue-400" />
+            New Folder
+          </button>
+        </div>
 
-        {/* File Container */}
         {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-10 h-10 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 animate-in fade-in duration-500">
-            {currentPath && !isSearching && (
-              <div 
-                onClick={handleBack}
-                className="group p-4 bg-slate-800/40 border border-slate-700/50 rounded-xl hover:bg-slate-800 hover:border-blue-500/50 transition-all cursor-pointer flex flex-col items-center justify-center gap-2"
-              >
-                <div className="text-slate-500 group-hover:text-blue-400">..</div>
-                <span className="text-xs text-slate-400">Back</span>
-              </div>
-            )}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {(isSearching ? searchResults : items).map((item, idx) => (
               <div 
-                key={idx}
-                onContextMenu={(e) => onContextMenu(e, item)}
-                onClick={() => {
-                  if (item.is_dir) {
-                    const nextPath = item.path || (currentPath ? `${currentPath}/${item.name}` : item.name);
-                    if (isSearching) {
-                      setItems([]); // Clear local items
-                      setIsSearching(false);
-                      setSearchQuery('');
-                    }
-                    fetchFiles(nextPath);
-                  } else {
-                    setPreviewItem(item);
-                  }
-                }}
-                className="group p-4 bg-slate-800/40 border border-slate-700/50 rounded-xl hover:bg-slate-800 hover:border-blue-500/50 transition-all cursor-pointer flex flex-col items-center gap-3 relative"
+                key={idx} 
+                onClick={() => item.is_dir ? fetchFiles(item.path || (currentPath ? `${currentPath}/${item.name}` : item.name)) : setPreviewItem(item)}
+                className={`group p-4 bg-slate-800/40 border rounded-xl hover:bg-slate-800 transition-all cursor-pointer flex flex-col items-center gap-3 relative ${
+                  selectedItems.includes(item.path || (currentPath ? `${currentPath}/${item.name}` : item.name)) 
+                  ? 'border-blue-500 bg-blue-500/5' 
+                  : 'border-slate-700/50'
+                }`}
               >
+                <div 
+                  onClick={(e) => { e.stopPropagation(); toggleSelect(item); }}
+                  className={`absolute top-2 left-2 w-5 h-5 rounded border flex items-center justify-center ${
+                    selectedItems.includes(item.path || (currentPath ? `${currentPath}/${item.name}` : item.name))
+                    ? 'bg-blue-500 border-blue-500'
+                    : 'border-slate-600'
+                  }`}
+                >
+                  {selectedItems.includes(item.path || (currentPath ? `${currentPath}/${item.name}` : item.name)) && <div className="w-2 h-2 bg-white rounded-sm"></div>}
+                </div>
+
                 {(!item.is_dir && (isImage(item.name) || isVideo(item.name))) ? (
-                  <div className="w-full h-24 mb-2 rounded-xl overflow-hidden bg-slate-900 border border-slate-700/50 flex items-center justify-center relative">
+                  <div className="w-full h-32 mb-2 rounded-xl overflow-hidden bg-slate-900 border border-slate-700/50 flex items-center justify-center relative">
                     {isImage(item.name) ? (
-                      <img src={getFileUrl(item)} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" />
+                      <img 
+                        src={getFileUrl(item)} 
+                        alt={item.name} 
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
+                        loading="lazy" 
+                      />
                     ) : (
-                      <video src={getFileUrl(item)} className="w-full h-full object-cover" muted preload="metadata" />
+                      <video 
+                        src={getFileUrl(item)} 
+                        className="w-full h-full object-cover" 
+                        muted 
+                        preload="metadata" 
+                      />
                     )}
                     {isVideo(item.name) && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                        <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
-                          <div className="w-0 h-0 border-y-4 border-y-transparent border-l-6 border-l-white ml-1"></div>
+                        <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
+                          <div className="w-0 h-0 border-y-5 border-y-transparent border-l-8 border-l-white ml-1"></div>
                         </div>
                       </div>
                     )}
                   </div>
                 ) : (
                   <div className={`p-3 rounded-xl mb-1 ${item.is_dir ? 'bg-blue-500/10 text-blue-400' : 'bg-slate-700/50 text-slate-400'}`}>
-                    {item.is_dir ? <Folder className="w-8 h-8" /> : <FileIcon className="w-8 h-8" />}
+                      {item.is_dir ? <Folder className="w-8 h-8" /> : <FileIcon className="w-8 h-8" />}
                   </div>
                 )}
-                <div className="w-full flex flex-col items-center">
-                  <span className="text-sm font-medium truncate w-full text-center px-2">{item.name}</span>
-                  {isSearching && item.path && <span className="text-[10px] text-slate-500 truncate w-full text-center">/{item.path.split('/').slice(0, -1).join('/')}</span>}
-                  {!item.is_dir && <span className="text-[10px] text-slate-500">{(item.size / 1024).toFixed(1)} KB</span>}
-                </div>
+                <span className="text-sm font-medium truncate w-full text-center px-2">{item.name}</span>
                 
                 <button 
-                  className="absolute top-2 right-2 p-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-slate-500 hover:text-white bg-slate-900/50 md:bg-transparent rounded-full"
+                  className="absolute top-2 right-2 p-1 text-slate-500 hover:text-white"
                   onClick={(e) => { e.stopPropagation(); onContextMenu(e, item); }}
                 >
                   <MoreVertical className="w-4 h-4" />
@@ -508,69 +454,23 @@ const Dashboard = () => {
             ))}
           </div>
         ) : (
-          <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl overflow-hidden animate-in fade-in duration-500">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-700 bg-slate-800/50">
-                  <th className="px-4 py-3 font-semibold text-slate-400 w-10"></th>
-                  <th className="px-4 py-3 font-semibold text-slate-400">Name</th>
-                  <th className="px-4 py-3 font-semibold text-slate-400 hidden sm:table-cell">Size</th>
-                  <th className="px-4 py-3 font-semibold text-slate-400 hidden md:table-cell">Modified</th>
-                  <th className="px-4 py-3 font-semibold text-slate-400 w-10"></th>
-                </tr>
-              </thead>
+          <div className="bg-slate-800/40 border border-slate-700 rounded-xl overflow-hidden">
+            <table className="w-full text-left text-sm">
               <tbody>
-                {currentPath && !isSearching && (
-                  <tr onClick={handleBack} className="hover:bg-slate-700/50 cursor-pointer transition-colors border-b border-slate-800/50">
-                    <td className="px-4 py-3 text-center text-slate-500 font-bold">..</td>
-                    <td className="px-4 py-3 text-slate-400 italic">Back to parent</td>
-                    <td className="px-4 py-3 hidden sm:table-cell">--</td>
-                    <td className="px-4 py-3 hidden md:table-cell">--</td>
-                    <td className="px-4 py-3"></td>
+                {currentPath && (
+                  <tr onClick={handleBack} className="hover:bg-slate-700/50 cursor-pointer border-b border-slate-800">
+                    <td className="px-4 py-3 text-slate-500 font-bold">.. Back</td>
                   </tr>
                 )}
                 {(isSearching ? searchResults : items).map((item, idx) => (
                   <tr 
                     key={idx} 
-                    onClick={() => {
-                      if (item.is_dir) {
-                        const nextPath = item.path || (currentPath ? `${currentPath}/${item.name}` : item.name);
-                        fetchFiles(nextPath);
-                      } else {
-                        setPreviewItem(item);
-                      }
-                    }}
-                    onContextMenu={(e) => onContextMenu(e, item)}
-                    className="hover:bg-slate-700/50 cursor-pointer transition-colors border-b border-slate-800/50 group"
+                    onClick={() => item.is_dir ? fetchFiles(item.path || (currentPath ? `${currentPath}/${item.name}` : item.name)) : setPreviewItem(item)}
+                    className="hover:bg-slate-700/50 cursor-pointer border-b border-slate-800"
                   >
-                    <td className="px-4 py-3">
-                      {item.is_dir ? (
-                        <Folder className="w-5 h-5 text-blue-400" />
-                      ) : (
-                        <FileIcon className="w-5 h-5 text-slate-400" />
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col">
-                        <span className="font-medium">{item.name}</span>
-                        {isSearching && item.path && (
-                          <span className="text-[10px] text-slate-500">/{item.path.split('/').slice(0, -1).join('/')}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-400 hidden sm:table-cell">
-                      {item.is_dir ? '--' : `${(item.size / 1024).toFixed(1)} KB`}
-                    </td>
-                    <td className="px-4 py-3 text-slate-400 hidden md:table-cell text-xs">
-                      {new Date(item.modified).toLocaleDateString()} {new Date(item.modified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button 
-                        className="p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-slate-500 hover:text-white"
-                        onClick={(e) => { e.stopPropagation(); onContextMenu(e, item); }}
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
+                    <td className="px-4 py-3 flex items-center gap-3">
+                      {item.is_dir ? <Folder className="w-5 h-5 text-blue-400" /> : <FileIcon className="w-5 h-5 text-slate-400" />}
+                      {item.name}
                     </td>
                   </tr>
                 ))}
@@ -578,73 +478,29 @@ const Dashboard = () => {
             </table>
           </div>
         )}
-
-        {(isSearching ? searchResults : items).length === 0 && !loading && (
-          <div className="text-center py-20 text-slate-500">
-            <div className="w-16 h-16 mx-auto mb-4 opacity-10 bg-slate-700 rounded-full flex items-center justify-center">
-              <Folder className="w-8 h-8" />
-            </div>
-            <p>{isSearching ? 'No results found match your criteria' : 'This folder is empty'}</p>
-          </div>
-        )}
       </main>
 
-      {/* Context Menu */}
+      {/* Modals */}
       {contextMenu && (
         <div 
-          className="fixed bg-slate-800 border border-slate-700 shadow-2xl rounded-lg py-1 w-48 z-50 animate-in fade-in zoom-in duration-100"
+          className="fixed bg-slate-800 border border-slate-700 shadow-2xl rounded-lg py-1 w-48 z-50"
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
         >
           {!selectedItem.is_dir && (
             <>
-              <button 
-                onClick={() => { setPreviewItem(selectedItem); setContextMenu(null); }}
-                className="w-full text-left px-4 py-2 text-sm hover:bg-slate-700 flex items-center gap-2"
-              >
-                <Eye className="w-4 h-4" /> Preview
-              </button>
-              <button 
-                onClick={handleDownload}
-                className="w-full text-left px-4 py-2 text-sm hover:bg-blue-600 flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" /> Download
-              </button>
+              <button onClick={() => { setPreviewItem(selectedItem); setContextMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-slate-700">Preview</button>
+              <button onClick={handleDownload} className="w-full text-left px-4 py-2 hover:bg-blue-600">Download</button>
             </>
           )}
-          <button 
-            onClick={handleDelete}
-            className="w-full text-left px-4 py-2 text-sm hover:bg-red-600 flex items-center gap-2"
-          >
-            <Trash2 className="w-4 h-4" /> Delete
-          </button>
-          {selectedItem.is_dir && (
-            <button 
-              onClick={() => { setShareItem(selectedItem); setContextMenu(null); }}
-              className="w-full text-left px-4 py-2 text-sm hover:bg-blue-600 flex items-center gap-2"
-            >
-              <Share2 className="w-4 h-4" /> Share
-            </button>
-          )}
+          <button onClick={() => { setShareItem(selectedItem); setContextMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-slate-700">Share</button>
+          <button onClick={handleDelete} className="w-full text-left px-4 py-2 hover:bg-red-600 text-red-400 hover:text-white">Delete</button>
         </div>
       )}
 
-      {/* Media Preview Modal */}
-      {previewItem && (
-        <MediaPreview 
-          item={previewItem} 
-          currentPath={currentPath} 
-          onClose={() => setPreviewItem(null)} 
-        />
-      )}
-      {/* Share Modal */}
-      {shareItem && (
-        <ShareModal 
-          item={shareItem} 
-          currentPath={currentPath} 
-          onClose={() => setShareItem(null)} 
-        />
-      )}
+      {previewItem && <MediaPreview item={previewItem} currentPath={currentPath} onClose={() => setPreviewItem(null)} />}
+      {shareItem && <ShareModal item={shareItem} currentPath={currentPath} onClose={() => setShareItem(null)} />}
+      
+      <Footer />
     </div>
   );
 };

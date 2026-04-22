@@ -1,16 +1,24 @@
 export const getApiUrl = () => {
-  const envUrl = import.meta.env.VITE_API_URL;
+  if (typeof window === 'undefined') return 'http://localhost:9000';
   
-  // 1. Jika ada VITE_API_URL dan bukan localhost, gunakan itu langsung (Prioritas Utama)
+  const hostname = window.location.hostname;
+  
+  // 1. Production Domain Mapping
+  if (hostname === 'storage.sman1margaasih.sch.id') {
+    return 'https://apistorage.sman1margaasih.sch.id';
+  }
+  
+  // 2. Environment Variable Override
+  const envUrl = import.meta.env.VITE_API_URL;
   if (envUrl && !envUrl.includes('localhost')) {
     return envUrl;
   }
 
-  // 2. Smart fallback untuk akses IP Lokal (192.168.x.x) agar tetap bisa konek ke port 9000
-  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-    return `${window.location.protocol}//${window.location.hostname}:9000`;
+  // 3. Smart fallback for Local IP (192.168.x.x) or other custom hostnames
+  if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    return `${window.location.protocol}//${hostname}:9000`;
   }
   
-  // 3. Terakhir, gunakan envUrl (yang mungkin localhost) atau default localhost
+  // 4. Default Localhost
   return envUrl || 'http://localhost:9000';
 };
