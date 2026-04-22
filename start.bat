@@ -4,15 +4,18 @@ echo ======================================================
 echo           MYCLOUD STORAGE - DOCKER RUNNER
 echo ======================================================
 echo.
-echo [1/3] Membangun dan menjalankan container (Detached Mode)...
+echo [1/4] Membersihkan container dan volume lama...
+docker-compose down -v
+echo.
+echo [2/4] Membangun dan menjalankan container (Detached Mode)...
 docker-compose up -d --build
 echo.
-echo [2/3] Status Running Containers:
+echo [3/4] Status Running Containers:
 echo ------------------------------------------------------
 docker-compose ps
 echo ------------------------------------------------------
 echo.
-echo [3/3] Menampilkan log backend (Tekan Ctrl+C untuk keluar dari log):
+echo [4/4] Menampilkan log backend (Tekan Ctrl+C untuk keluar dari log):
 echo.
 docker-compose logs -f backend
 echo.
