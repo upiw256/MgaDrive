@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 import os
@@ -312,6 +312,8 @@ async def create_share(share: ShareCreate, current_user: dict = Depends(get_curr
         update_data = {
             "allowed_users": share.allowed_users,
             "expires_at": share.expires_at,
+            "title": share.title,
+            "description": share.description,
             "updated_at": datetime.utcnow()
         }
         await shared_links_collection.update_one({"_id": existing["_id"]}, {"$set": update_data})
@@ -325,7 +327,9 @@ async def create_share(share: ShareCreate, current_user: dict = Depends(get_curr
             "target_path": share.path,
             "allowed_users": share.allowed_users,
             "created_at": datetime.utcnow(),
-            "expires_at": share.expires_at
+            "expires_at": share.expires_at,
+            "title": share.title,
+            "description": share.description
         }
         await shared_links_collection.insert_one(doc)
     
@@ -385,6 +389,36 @@ async def get_share_and_verify(link_id: str, request: Request):
             
     return share
 
+@app.get("/s/{link_id}", response_class=HTMLResponse)
+async def share_preview_page(link_id: str, request: Request):
+    share = await get_share_and_verify(link_id, request)
+    
+    title = share.get("title") or f"Shared Folder: {os.path.basename(share['target_path'])}"
+    description = share.get("description") or "Check out this shared folder on MyCloud Storage."
+    
+    # We point back to the frontend URL for the actual app
+    # In a real scenario, this would be your production domain
+    frontend_url = f"{request.base_url.scheme}://{request.base_url.hostname}:9001/s/{link_id}"
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>{title}</title>
+        <meta property="og:title" content="{title}" />
+        <meta property="og:description" content="{description}" />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="{frontend_url}" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta http-equiv="refresh" content="0; url={frontend_url}" />
+    </head>
+    <body>
+        <p>Redirecting to share... <a href="{frontend_url}">Click here</a> if you are not redirected.</p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
 @app.get("/s/{link_id}/files")
 async def list_shared_files(link_id: str, request: Request, path: str = ""):
     share = await get_share_and_verify(link_id, request)
@@ -430,13 +464,10 @@ async def download_shared_file(link_id: str, request: Request, path: str):
     if not os.path.exists(file_path) or os.path.isdir(file_path):
         raise HTTPException(status_code=404, detail="File not found")
         
-    # Get owner's speed limit
-    owner = await users_collection.find_one({"_id": share["owner_id"] if isinstance(share["owner_id"], str) else share["owner_id"]})
-    # Wait, owner_id in share is string usually, but database.py might use ObjectId
-    from bson import ObjectId
+    # Get owner's speed limit, but cap it at 1024 Kbps (1 Mbps) for shared links
     owner = await users_collection.find_one({"_id": ObjectId(owner_id)})
-    
-    speed_limit = owner.get("download_limit_kbps", 500) if owner else 500
+    owner_speed_limit = owner.get("download_limit_kbps", 500) if owner else 500
+    speed_limit = min(owner_speed_limit, 1024)
     
     mime_type, _ = mimetypes.guess_type(file_path)
     if not mime_type:

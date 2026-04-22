@@ -12,6 +12,8 @@ const ShareModal = ({ item, currentPath, onClose }) => {
   const [expirationOption, setExpirationOption] = useState('permanent'); // 'permanent' | '1d' | '7d' | '30d' | 'custom'
   const [customDate, setCustomDate] = useState('');
   const [copied, setCopied] = useState(false);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
 
   const relativePath = item.path || (currentPath ? `${currentPath}/${item.name}` : item.name);
   const apiBaseUrl = window.location.origin;
@@ -34,6 +36,8 @@ const ShareModal = ({ item, currentPath, onClose }) => {
           setExpirationOption('custom');
           setCustomDate(new Date(existing.expires_at).toISOString().split('T')[0]);
         }
+        setTitle(existing.title || '');
+        setDescription(existing.description || '');
       }
     } catch (err) {
       console.error('Failed to fetch share data', err);
@@ -56,7 +60,9 @@ const ShareModal = ({ item, currentPath, onClose }) => {
       const response = await api.post('/shares', {
         path: relativePath,
         allowed_users: isPublic ? null : allowedUsers,
-        expires_at: expires_at ? expires_at.toISOString() : null
+        expires_at: expires_at ? expires_at.toISOString() : null,
+        title: title || null,
+        description: description || null
       });
       setShareData(response.data);
       showToast('success', 'Share settings updated');
@@ -120,6 +126,33 @@ const ShareModal = ({ item, currentPath, onClose }) => {
         </div>
 
         <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+          {/* Meta Data Section */}
+          <div className="space-y-4 p-4 bg-slate-800/30 rounded-xl border border-slate-700/50">
+            <label className="text-sm font-semibold text-slate-400 block uppercase tracking-wider">Social Preview (Meta)</label>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] text-slate-500 font-bold mb-1 block">PREVIEW TITLE</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. Project Assets 2024"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-500 font-bold mb-1 block">DESCRIPTION</label>
+                <textarea 
+                  placeholder="Tell people what's in this folder..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows="2"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Visibility Section */}
           <div className="space-y-3">
             <label className="text-sm font-semibold text-slate-400 block uppercase tracking-wider">Who can access?</label>

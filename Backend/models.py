@@ -31,6 +31,8 @@ class ShareCreate(BaseModel):
     path: str
     allowed_users: Optional[list[str]] = None # List of usernames/emails. If empty/None, it's public.
     expires_at: Optional[datetime] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
 
 class ShareResponse(BaseModel):
     link_id: str
@@ -39,3 +41,5 @@ class ShareResponse(BaseModel):
     allowed_users: Optional[list[str]] = None
     created_at: datetime
     expires_at: Optional[datetime] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
