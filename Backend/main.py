@@ -398,7 +398,18 @@ async def share_preview_page(link_id: str, request: Request):
     
     # We point back to the frontend URL for the actual app
     # In a real scenario, this would be your production domain
-    frontend_url = f"{request.base_url.scheme}://{request.base_url.hostname}:9001/s/{link_id}"
+    # Use environment variable for frontend URL if available
+    frontend_env = os.getenv("FRONTEND_URL")
+    if frontend_env:
+        frontend_url = f"{frontend_env.rstrip('/')}/s/{link_id}"
+    else:
+        # Fallback to dynamic detection
+        host = request.base_url.hostname
+        # If it's a domain name (contains dots and not an IP), don't add port 9001
+        if "." in host and not host.replace(".", "").isdigit():
+            frontend_url = f"{request.base_url.scheme}://{host}/s/{link_id}"
+        else:
+            frontend_url = f"{request.base_url.scheme}://{host}:9001/s/{link_id}"
     
     html_content = f"""
     <!DOCTYPE html>
