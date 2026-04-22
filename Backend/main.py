@@ -157,9 +157,9 @@ async def list_files(path: str = "", current_user: dict = Depends(get_current_us
     return {"path": path, "items": items}
 
 @app.post("/upload")
-async def upload_file(
+async def upload_files(
     path: str = Form(""),
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     current_user: dict = Depends(get_current_user)
 ):
     user_id = str(current_user["_id"])
@@ -168,12 +168,14 @@ async def upload_file(
     except ValueError:
         raise HTTPException(status_code=403, detail="Forbidden")
     
-    target_file_path = os.path.join(target_dir, file.filename)
+    uploaded_filenames = []
+    for file in files:
+        target_file_path = os.path.join(target_dir, file.filename)
+        with open(target_file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        uploaded_filenames.append(file.filename)
     
-    with open(target_file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    return {"message": "File uploaded successfully", "filename": file.filename}
+    return {"message": f"{len(uploaded_filenames)} files uploaded successfully", "filenames": uploaded_filenames}
 
 @app.post("/folder")
 async def create_folder(path: str = Form(""), name: str = Form(...), current_user: dict = Depends(get_current_user)):

@@ -199,18 +199,25 @@ const Dashboard = () => {
   };
 
   const handleUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    
     const formData = new FormData();
     formData.append('path', currentPath);
-    formData.append('file', file);
+    files.forEach(file => {
+      formData.append('files', file); // Use 'files' to match Backend list[UploadFile]
+    });
+
     try {
-      showToast('info', 'Uploading...');
-      await api.post('/upload', formData);
+      showToast('info', `Uploading ${files.length} files...`);
+      await api.post('/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
       fetchFiles(currentPath);
       showToast('success', 'Upload complete');
+      e.target.value = null; // Clear input
     } catch (err) {
-      showAlert('error', 'Upload Failed', 'There was an error uploading your file');
+      showAlert('error', 'Upload Failed', 'There was an error uploading your files');
     }
   };
 
@@ -340,7 +347,7 @@ const Dashboard = () => {
               <label className="cursor-pointer flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-medium transition-all transform active:scale-95 shadow-lg shadow-blue-500/20">
                 <Upload className="w-4 h-4" />
                 Upload
-                <input type="file" className="hidden" onChange={handleUpload} />
+                <input type="file" className="hidden" multiple onChange={handleUpload} />
               </label>
               <button 
                 onClick={handleCreateFolder}
